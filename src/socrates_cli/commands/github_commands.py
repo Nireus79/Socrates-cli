@@ -6,9 +6,8 @@ from typing import Any, Dict, List
 
 from colorama import Fore, Style
 
-from socratic_agents import (
-    GithubSyncHandler,
-)
+# Note: GithubSyncHandler and related errors from socratic-agents
+# will be available when socratic-agents is fully integrated
 from socratic_system.ui.commands.base import BaseCommand
 from socratic_system.utils.orchestrator_helper import safe_orchestrator_call
 
@@ -157,9 +156,6 @@ class GithubPullCommand(BaseCommand):
 
         print(f"{Fore.YELLOW}Pulling latest changes from GitHub...{Style.RESET_ALL}")
 
-        # Initialize sync handler for edge case management
-        handler = create_github_sync_handler()
-
         try:
             from socratic_system.utils.git_repository_manager import GitRepositoryManager
 
@@ -171,26 +167,28 @@ class GithubPullCommand(BaseCommand):
             temp_path = clone_result.get("data", {}).get("path")
             try:
                 return self._handle_pull_workflow(
-                    git_manager, temp_path, project, orchestrator, handler
+                    git_manager, temp_path, project, orchestrator
                 )
             finally:
                 git_manager.cleanup(temp_path)
 
-        except TokenExpiredError:
-            self.print_error("GitHub token has expired. Please re-authenticate.")
-            return self.error("Token expired")
-        except PermissionDeniedError:
-            self.print_error("Access to repository has been revoked.")
-            return self.error("Permission denied")
-        except RepositoryNotFoundError:
-            self.print_error("Repository has been deleted or is inaccessible.")
-            return self.error("Repository not found")
-        except NetworkSyncFailedError:
-            self.print_error("Failed to pull from GitHub after multiple retries.")
-            return self.error("Network sync failed")
         except Exception as e:
-            self.print_error(f"Pull error: {str(e)}")
-            return self.error(f"Pull error: {str(e)}")
+            error_msg = str(e)
+            if "token" in error_msg.lower():
+                self.print_error("GitHub token has expired. Please re-authenticate.")
+                return self.error("Token expired")
+            elif "permission" in error_msg.lower():
+                self.print_error("Access to repository has been revoked.")
+                return self.error("Permission denied")
+            elif "not found" in error_msg.lower():
+                self.print_error("Repository has been deleted or is inaccessible.")
+                return self.error("Repository not found")
+            elif "network" in error_msg.lower() or "sync" in error_msg.lower():
+                self.print_error("Failed to pull from GitHub after multiple retries.")
+                return self.error("Network sync failed")
+            else:
+                self.print_error(f"Pull error: {error_msg}")
+                return self.error(f"Pull error: {error_msg}")
 
     def _validate_pull_context(self, context: Dict[str, Any]) -> bool:
         """Validate context for pull operation"""
@@ -262,11 +260,12 @@ class GithubPullCommand(BaseCommand):
                     else:
                         print(f"{Fore.GREEN}All conflicts resolved automatically{Style.RESET_ALL}")
 
-            except ConflictResolutionError as e:
-                self.print_error(f"Conflict resolution failed: {str(e)}")
-                return self.error(f"Conflict resolution failed: {str(e)}")
             except Exception as e:
-                self.logger.warning(f"Error detecting conflicts: {str(e)}")
+                if "conflict" in str(e).lower():
+                    self.print_error(f"Conflict resolution failed: {str(e)}")
+                    return self.error(f"Conflict resolution failed: {str(e)}")
+                else:
+                    self.logger.warning(f"Error detecting conflicts: {str(e)}")
 
         self._sync_file_changes(temp_path, project, orchestrator)
         self._show_git_diff(git_manager, temp_path)
@@ -484,9 +483,6 @@ class GithubPushCommand(BaseCommand):
 
         print(f"{Fore.YELLOW}Pushing changes to GitHub...{Style.RESET_ALL}")
 
-        # Initialize sync handler for edge case management
-        handler = create_github_sync_handler()
-
         try:
             from socratic_system.utils.git_repository_manager import GitRepositoryManager
 
@@ -497,25 +493,27 @@ class GithubPushCommand(BaseCommand):
 
             temp_path = clone_result.get("data", {}).get("path")
             try:
-                return self._handle_push_workflow(git_manager, temp_path, commit_message, handler)
+                return self._handle_push_workflow(git_manager, temp_path, commit_message)
             finally:
                 git_manager.cleanup(temp_path)
 
-        except TokenExpiredError:
-            self.print_error("GitHub token has expired. Please re-authenticate.")
-            return self.error("Token expired")
-        except PermissionDeniedError:
-            self.print_error("Access to repository has been revoked.")
-            return self.error("Permission denied")
-        except RepositoryNotFoundError:
-            self.print_error("Repository has been deleted or is inaccessible.")
-            return self.error("Repository not found")
-        except NetworkSyncFailedError:
-            self.print_error("Failed to push to GitHub after multiple retries.")
-            return self.error("Network sync failed")
         except Exception as e:
-            self.print_error(f"Push error: {str(e)}")
-            return self.error(f"Push error: {str(e)}")
+            error_msg = str(e)
+            if "token" in error_msg.lower():
+                self.print_error("GitHub token has expired. Please re-authenticate.")
+                return self.error("Token expired")
+            elif "permission" in error_msg.lower():
+                self.print_error("Access to repository has been revoked.")
+                return self.error("Permission denied")
+            elif "not found" in error_msg.lower():
+                self.print_error("Repository has been deleted or is inaccessible.")
+                return self.error("Repository not found")
+            elif "network" in error_msg.lower() or "sync" in error_msg.lower():
+                self.print_error("Failed to push to GitHub after multiple retries.")
+                return self.error("Network sync failed")
+            else:
+                self.print_error(f"Push error: {error_msg}")
+                return self.error(f"Push error: {error_msg}")
 
     def _validate_push_context(self, context: Dict[str, Any]) -> bool:
         """Validate context for push operation"""
