@@ -153,7 +153,8 @@ class TestCLIErrorHandling:
 
     def test_cli_missing_required_option(self, cli_runner):
         """Test missing required option"""
-        result = cli_runner.invoke(main, ["project", "create"])
+        # Provide empty input to trigger missing required option error
+        result = cli_runner.invoke(main, ["project", "create"], input="\n\n")
 
         # Should fail due to missing options
         assert result.exit_code != 0
@@ -225,7 +226,8 @@ class TestCLIConfiguration:
 
     def test_cli_respects_data_dir_option(self, cli_runner):
         """Test that data-dir option is respected"""
-        result = cli_runner.invoke(main, ["init", "--data-dir", "/tmp/test"])
+        # Provide API key input for the init command prompt
+        result = cli_runner.invoke(main, ["init", "--data-dir", "/tmp/test"], input="test-api-key\n")
         # Test that the command accepts the data-dir option
         assert result.exit_code in [0, 1, 2]
 
