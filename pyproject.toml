@@ -52,6 +52,7 @@ standalone = [
 ]
 dev = [
     "pytest>=7.0",
+    "pytest-timeout>=2.1.0",
     "pytest-cov>=4.0",
     "black>=23.0",
     "ruff>=0.1.0",
@@ -85,7 +86,8 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "--strict-markers --tb=short -v"
+addopts = "--strict-markers --tb=short -v --timeout=5"
+timeout = 5
 markers = [
     "unit: Unit tests (no external dependencies)",
     "integration: Integration tests (require mocking or local setup)",
