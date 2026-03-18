@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from colorama import Fore, Style
 
-from socratic_system.ui.commands.base import BaseCommand
+from socratic_core.commands import BaseCommand
 from socratic_system.utils.logger import is_debug_mode, set_debug_mode
 
 

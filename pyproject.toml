@@ -15,7 +15,7 @@ license = {text = "MIT"}
 keywords = ["cli", "commands", "socrates", "ai", "development"]
 
 dependencies = [
-    "colorama>=0.4.6",
+    "socratic-core>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +36,7 @@ dev = [
 ]
 
 all = [
-    "colorama>=0.4.6",
+    "socratic-core>=0.1.0",
     "socratic-learning>=0.1.0",
     "socratic-analyzer>=0.1.0",
     "socratic-workflow>=0.1.0",

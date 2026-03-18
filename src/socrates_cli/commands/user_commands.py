@@ -12,7 +12,7 @@ from colorama import Fore, Style
 from socrates_api.auth.password import hash_password, verify_password
 
 from socratic_system.models import User
-from socratic_system.ui.commands.base import BaseCommand
+from socratic_core.commands import BaseCommand
 from socratic_system.utils.orchestrator_helper import safe_orchestrator_call
 
 

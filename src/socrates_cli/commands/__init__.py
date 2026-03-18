@@ -8,7 +8,7 @@ from socratic_system.ui.commands.analytics_commands import (
     AnalyticsSummaryCommand,
     AnalyticsTrendsCommand,
 )
-from socratic_system.ui.commands.base import BaseCommand
+from socratic_core.commands import BaseCommand
 from socratic_system.ui.commands.code_commands import CodeDocsCommand, CodeGenerateCommand
 from socratic_system.ui.commands.collab_commands import (
     CollabAddCommand,

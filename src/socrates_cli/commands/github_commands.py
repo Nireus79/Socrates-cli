@@ -8,7 +8,7 @@ from colorama import Fore, Style
 
 # Note: GithubSyncHandler and related errors from socratic-agents
 # will be available when socratic-agents is fully integrated
-from socratic_system.ui.commands.base import BaseCommand
+from socratic_core.commands import BaseCommand
 from socratic_system.utils.orchestrator_helper import safe_orchestrator_call
 
 

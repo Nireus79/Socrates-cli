@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List
 
 from socratic_learning.analytics.analytics_calculator import AnalyticsCalculator
 from socratic_system.ui.analytics_display import AnalyticsDisplay
-from socratic_system.ui.commands.base import BaseCommand
+from socratic_core.commands import BaseCommand
 
 logger = logging.getLogger(__name__)
 

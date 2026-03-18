@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 from colorama import Fore, Style
 
 from socratic_system.subscription.tiers import get_tier_limits
-from socratic_system.ui.commands.base import BaseCommand
+from socratic_core.commands import BaseCommand
 
 
 class SubscriptionStatusCommand(BaseCommand):
