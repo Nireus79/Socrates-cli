@@ -1,76 +1,12 @@
 """
-Socrates CLI - Command-line interface for Socrates AI framework.
+Socrates CLI - Command-line interface for Socrates AI
 
-Provides a comprehensive set of commands for:
-- Project management
-- Code analysis and generation
-- Conversation and sessions
-- Collaboration
-- Analytics and maturity tracking
-- Document management
-- Workflow orchestration
+A user-friendly command-line interface to the Socrates AI library,
+providing an interactive terminal experience for the Socratic tutoring system.
 """
 
-__version__ = "0.1.0"
-__author__ = "Socrates Team"
-__email__ = "info@socrates-ai.dev"
+__version__ = "0.5.0"
+__author__ = "Socrates AI Contributors"
+__license__ = "MIT"
 
-from socrates_cli.commands import (
-    # Analytics commands
-    AnalyticsAnalyzeCommand,
-    AnalyticsBreakdownCommand,
-    AnalyticsRecommendCommand,
-    AnalyticsStatusCommand,
-    AnalyticsSummaryCommand,
-    AnalyticsTrendsCommand,
-    # Code commands
-    CodeDocsCommand,
-    CodeExplainCommand,
-    CodeGenerateCommand,
-    CodeReviewCommand,
-    # Collaboration commands
-    CollabAddCommand,
-    CollabListCommand,
-    CollabRemoveCommand,
-    CollabRoleCommand,
-    # Conversation commands
-    ConvSearchCommand,
-    ConvSummaryCommand,
-    # Session commands
-    SessionCreateCommand,
-    SessionDeleteCommand,
-    SessionExportCommand,
-    SessionImportCommand,
-    SessionListCommand,
-    SessionLoadCommand,
-    SessionSaveCommand,
-    SessionSwitchCommand,
-    # And more...
-)
-
-__all__ = [
-    "AnalyticsAnalyzeCommand",
-    "AnalyticsBreakdownCommand",
-    "AnalyticsRecommendCommand",
-    "AnalyticsStatusCommand",
-    "AnalyticsSummaryCommand",
-    "AnalyticsTrendsCommand",
-    "CodeDocsCommand",
-    "CodeExplainCommand",
-    "CodeGenerateCommand",
-    "CodeReviewCommand",
-    "CollabAddCommand",
-    "CollabListCommand",
-    "CollabRemoveCommand",
-    "CollabRoleCommand",
-    "ConvSearchCommand",
-    "ConvSummaryCommand",
-    "SessionCreateCommand",
-    "SessionDeleteCommand",
-    "SessionExportCommand",
-    "SessionImportCommand",
-    "SessionListCommand",
-    "SessionLoadCommand",
-    "SessionSaveCommand",
-    "SessionSwitchCommand",
-]
+__all__ = ["__version__", "__author__", "__license__"]
