@@ -16,6 +16,10 @@ keywords = ["cli", "commands", "socrates", "ai", "development"]
 
 dependencies = [
     "colorama>=0.4.6",
+]
+
+[project.optional-dependencies]
+socratic = [
     "socratic-learning>=0.1.0",
     "socratic-analyzer>=0.1.0",
     "socratic-workflow>=0.1.0",
@@ -23,8 +27,21 @@ dependencies = [
     "socratic-agents>=0.1.0",
 ]
 
-[project.optional-dependencies]
 dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "ruff>=0.0.292",
+]
+
+all = [
+    "colorama>=0.4.6",
+    "socratic-learning>=0.1.0",
+    "socratic-analyzer>=0.1.0",
+    "socratic-workflow>=0.1.0",
+    "socratic-conflict>=0.1.0",
+    "socratic-agents>=0.1.0",
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "black>=23.0.0",
