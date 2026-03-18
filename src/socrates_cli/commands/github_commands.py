@@ -166,9 +166,7 @@ class GithubPullCommand(BaseCommand):
 
             temp_path = clone_result.get("data", {}).get("path")
             try:
-                return self._handle_pull_workflow(
-                    git_manager, temp_path, project, orchestrator
-                )
+                return self._handle_pull_workflow(git_manager, temp_path, project, orchestrator)
             finally:
                 git_manager.cleanup(temp_path)
 

@@ -58,7 +58,7 @@ class CodeGenerateCommand(BaseCommand):
                 analysis = analyzer.analyze_code(
                     code=script,
                     language=project.tech_stack[0] if project.tech_stack else "python",
-                    file_path=save_path
+                    file_path=save_path,
                 )
                 if analysis.get("recommendations"):
                     self._display_code_analysis(analysis)
@@ -161,13 +161,17 @@ class CodeGenerateCommand(BaseCommand):
 
         security = analysis.get("security", {})
         if security and security.get("total_issues", 0) > 0:
-            print(f"  {Fore.YELLOW}Security Issues:{Style.RESET_ALL} {security.get('total_issues', 0)}")
+            print(
+                f"  {Fore.YELLOW}Security Issues:{Style.RESET_ALL} {security.get('total_issues', 0)}"
+            )
             if security.get("critical", 0) > 0:
                 print(f"    {Fore.RED}Critical: {security.get('critical', 0)}{Style.RESET_ALL}")
 
         performance = analysis.get("performance", {})
         if performance and performance.get("total_issues", 0) > 0:
-            print(f"  {Fore.YELLOW}Performance Issues:{Style.RESET_ALL} {performance.get('total_issues', 0)}")
+            print(
+                f"  {Fore.YELLOW}Performance Issues:{Style.RESET_ALL} {performance.get('total_issues', 0)}"
+            )
 
         recommendations = analysis.get("recommendations", [])
         if recommendations:
@@ -175,7 +179,9 @@ class CodeGenerateCommand(BaseCommand):
             for rec in recommendations[:3]:
                 priority = rec.get("priority", "medium")
                 priority_color = Fore.RED if priority == "high" else Fore.YELLOW
-                print(f"    {priority_color}[{priority.upper()}]{Style.RESET_ALL} {rec.get('description', '')}")
+                print(
+                    f"    {priority_color}[{priority.upper()}]{Style.RESET_ALL} {rec.get('description', '')}"
+                )
 
 
 class CodeDocsCommand(BaseCommand):

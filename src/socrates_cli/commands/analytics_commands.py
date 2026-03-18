@@ -130,9 +130,9 @@ class AnalyticsRecommendCommand(BaseCommand):
                     context={
                         "project_id": project.id,
                         "phase": project.phase,
-                        "project_type": project.project_type
+                        "project_type": project.project_type,
                     },
-                    top_k=3
+                    top_k=3,
                 )
                 logger.debug(f"Retrieved {len(learning_recs)} learning-based recommendations")
             except Exception as e:
@@ -190,8 +190,12 @@ class AnalyticsTrendsCommand(BaseCommand):
             # Enhance with learning metrics
             learning_metrics = {}
             try:
-                learning_metrics = self.orchestrator.learning_integration.get_learning_metrics(user_id)
-                logger.debug(f"Retrieved learning metrics: engagement={learning_metrics.get('engagement_score', 0)}")
+                learning_metrics = self.orchestrator.learning_integration.get_learning_metrics(
+                    user_id
+                )
+                logger.debug(
+                    f"Retrieved learning metrics: engagement={learning_metrics.get('engagement_score', 0)}"
+                )
             except Exception as e:
                 logger.debug(f"Learning metrics unavailable: {e}")
 
@@ -203,11 +207,7 @@ class AnalyticsTrendsCommand(BaseCommand):
             logger.debug("Displaying trends")
             _safe_display(AnalyticsDisplay.display_trends, trends, project.maturity_history)
 
-            return {
-                "status": "success",
-                "trends": trends,
-                "learning_metrics": learning_metrics
-            }
+            return {"status": "success", "trends": trends, "learning_metrics": learning_metrics}
 
         except Exception as e:
             logger.error(f"Trend analysis failed: {type(e).__name__}: {e}")
