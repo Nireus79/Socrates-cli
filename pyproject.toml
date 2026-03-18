@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "socrates-cli"
+version = "0.1.0"
+description = "Command-line interface and commands for Socrates AI framework"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Socrates Team", email = "info@socrates-ai.dev"}
+]
+license = {text = "MIT"}
+keywords = ["cli", "commands", "socrates", "ai", "development"]
+
+dependencies = [
+    "colorama>=0.4.6",
+    "socratic-learning>=0.1.0",
+    "socratic-analyzer>=0.1.0",
+    "socratic-workflow>=0.1.0",
+    "socratic-conflict>=0.1.0",
+    "socratic-agents>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "ruff>=0.0.292",
+]
+
+[project.urls]
+Homepage = "https://github.com/Nireus79/Socrates-cli"
+Documentation = "https://github.com/Nireus79/Socrates-cli"
+Repository = "https://github.com/Nireus79/Socrates-cli.git"
+"Bug Tracker" = "https://github.com/Nireus79/Socrates-cli/issues"
+
+[tool.setuptools]
+packages = ["socrates_cli"]
+package-dir = {"" = "src"}
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
