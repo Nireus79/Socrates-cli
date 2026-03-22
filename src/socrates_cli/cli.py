@@ -811,6 +811,135 @@ def libraries_docs_generate(project_name, description):
         sys.exit(1)
 
 
+@libraries.command("workflow-execute")
+@click.option("--name", required=True, help="Workflow name")
+def libraries_workflow_execute(name):
+    """Execute a workflow using socratic-workflow."""
+    try:
+        click.echo(f"{Fore.CYAN}Executing workflow '{name}'...{Style.RESET_ALL}")
+
+        result = api_request(
+            "POST",
+            "/libraries/workflow/execute",
+            params={"workflow_name": name, "parameters": {}},
+        )
+
+        if result.get("success"):
+            click.echo(f"{Fore.GREEN}Workflow executed successfully!{Style.RESET_ALL}")
+            click.echo(f"  Duration: {result.get('duration_ms', 0)}ms")
+        else:
+            click.echo(f"{Fore.YELLOW}{result.get('message', 'Workflow execution failed')}{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("performance-metrics")
+def libraries_performance_metrics():
+    """Get performance metrics using socratic-performance."""
+    try:
+        click.echo(f"{Fore.CYAN}Retrieving performance metrics...{Style.RESET_ALL}")
+
+        result = api_request("GET", "/libraries/performance/metrics")
+
+        if result:
+            click.echo(f"{Fore.GREEN}Performance Metrics:{Style.RESET_ALL}")
+            for key, value in result.items():
+                if key not in ["status", "message"]:
+                    click.echo(f"  {key}: {value}")
+        else:
+            click.echo(f"{Fore.YELLOW}No performance data available{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("rag-search")
+@click.option("--query", required=True, help="Search query")
+@click.option("--limit", default=5, type=int, help="Max results")
+def libraries_rag_search(query, limit):
+    """Search RAG system using socratic-rag."""
+    try:
+        click.echo(f"{Fore.CYAN}Searching RAG system for '{query}'...{Style.RESET_ALL}")
+
+        result = api_request(
+            "GET",
+            "/libraries/rag/search",
+            params={"query": query, "limit": limit},
+        )
+
+        if result:
+            click.echo(f"{Fore.GREEN}Found {len(result)} results:{Style.RESET_ALL}")
+            for i, item in enumerate(result, 1):
+                click.echo(f"{i}. {item.get('source', 'Unknown')}")
+                click.echo(f"   Score: {item.get('score', 'N/A')}")
+        else:
+            click.echo(f"{Fore.YELLOW}No results found{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("agents-list")
+def libraries_agents_list():
+    """List available agents using socratic-agents."""
+    try:
+        click.echo(f"{Fore.CYAN}Available Agents:{Style.RESET_ALL}")
+
+        result = api_request("GET", "/libraries/agents/list")
+
+        if result and result.get("agents"):
+            for i, agent in enumerate(result["agents"], 1):
+                click.echo(f"{i}. {agent}")
+            click.echo(f"\nTotal: {result.get('count', len(result['agents']))} agents")
+        else:
+            click.echo(f"{Fore.YELLOW}No agents available{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("security-validate")
+@click.option("--input", required=True, help="Input to validate")
+def libraries_security_validate(input):
+    """Validate input for security issues using socratic-security."""
+    try:
+        click.echo(f"{Fore.CYAN}Validating input for security issues...{Style.RESET_ALL}")
+
+        result = api_request(
+            "POST",
+            "/libraries/security/validate-input",
+            params={"user_input": input},
+        )
+
+        if result.get("valid"):
+            click.echo(f"{Fore.GREEN}Input is secure!{Style.RESET_ALL}")
+            click.echo(f"  Security Score: {result.get('security_score', 'N/A')}/100")
+            click.echo(f"  Threats Detected: {len(result.get('threats', []))}")
+        else:
+            click.echo(f"{Fore.RED}Security issues detected!{Style.RESET_ALL}")
+            for threat in result.get("threats", []):
+                click.echo(f"  - {threat}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
 @main.command()
 @click.option(
     "--log-level",
