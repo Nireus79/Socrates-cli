@@ -616,6 +616,201 @@ def commands_search(query):
         sys.exit(1)
 
 
+@main.group()
+def libraries():
+    """Manage Socratic ecosystem library integrations."""
+    pass
+
+
+@libraries.command("status")
+def libraries_status():
+    """Show status of all library integrations."""
+    try:
+        result = api_request("GET", "/libraries/status")
+
+        if result.get("status") == "error":
+            click.echo(f"{Fore.RED}Failed to get library status{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+        click.echo(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+        click.echo(f"{Fore.CYAN}Socratic Library Integration Status{Style.RESET_ALL}")
+        click.echo(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
+        click.echo("")
+
+        libraries_info = result.get("libraries", {})
+        enabled = result.get("enabled", 0)
+        total = result.get("total", 0)
+
+        click.echo(f"Overall: {enabled}/{total} libraries enabled")
+        click.echo("")
+
+        click.echo(f"{Fore.CYAN}{'Library':<25} {'Status':<15}{Style.RESET_ALL}")
+        click.echo("-" * 40)
+
+        for lib_name, is_enabled in libraries_info.items():
+            status = f"{Fore.GREEN}Enabled{Style.RESET_ALL}" if is_enabled else f"{Fore.YELLOW}Disabled{Style.RESET_ALL}"
+            click.echo(f"{lib_name:<25} {status}")
+
+        click.echo("")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("analyze")
+@click.option("--file", required=True, type=click.Path(exists=True), help="Python file to analyze")
+def libraries_analyze(file):
+    """Analyze code quality using socratic-analyzer."""
+    try:
+        with open(file, "r") as f:
+            code = f.read()
+
+        click.echo(f"{Fore.CYAN}Analyzing code in '{file}'...{Style.RESET_ALL}")
+
+        result = api_request(
+            "POST",
+            "/libraries/analyzer/analyze-code",
+            json_data={"code": code, "filename": file},
+        )
+
+        if not result:
+            click.echo(f"{Fore.YELLOW}Code analyzer unavailable{Style.RESET_ALL}")
+            return
+
+        click.echo(f"{Fore.GREEN}Analysis complete!{Style.RESET_ALL}")
+        click.echo("")
+
+        quality_score = result.get("quality_score", 0)
+        issues_count = result.get("issues_count", 0)
+
+        click.echo(f"Quality Score: {Fore.CYAN}{quality_score}/100{Style.RESET_ALL}")
+        click.echo(f"Issues Found: {issues_count}")
+
+        recommendations = result.get("recommendations", [])
+        if recommendations:
+            click.echo(f"\n{Fore.CYAN}Recommendations:{Style.RESET_ALL}")
+            for rec in recommendations[:5]:
+                click.echo(f"  • {rec}")
+
+        click.echo("")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("knowledge-store")
+@click.option("--tenant-id", required=True, help="Organization/tenant ID")
+@click.option("--title", required=True, help="Knowledge item title")
+@click.option("--content", required=True, help="Knowledge content")
+@click.option("--tags", multiple=True, help="Tags for categorization")
+def libraries_knowledge_store(tenant_id, title, content, tags):
+    """Store knowledge in socratic-knowledge."""
+    try:
+        click.echo(f"{Fore.CYAN}Storing knowledge item...{Style.RESET_ALL}")
+
+        result = api_request(
+            "POST",
+            "/libraries/knowledge/store",
+            json_data={
+                "tenant_id": tenant_id,
+                "title": title,
+                "content": content,
+                "tags": list(tags) if tags else [],
+            },
+        )
+
+        if result.get("status") == "stored" or result.get("item_id"):
+            click.echo(f"{Fore.GREEN}Knowledge stored successfully!{Style.RESET_ALL}")
+            if result.get("item_id"):
+                click.echo(f"  Item ID: {result.get('item_id')}")
+        else:
+            click.echo(f"{Fore.YELLOW}Knowledge system unavailable{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("knowledge-search")
+@click.option("--tenant-id", required=True, help="Organization/tenant ID")
+@click.option("--query", required=True, help="Search query")
+@click.option("--limit", default=5, type=int, help="Max results")
+def libraries_knowledge_search(tenant_id, query, limit):
+    """Search knowledge base using socratic-knowledge."""
+    try:
+        click.echo(f"{Fore.CYAN}Searching knowledge base...{Style.RESET_ALL}")
+
+        result = api_request(
+            "GET",
+            "/libraries/knowledge/search",
+            params={
+                "tenant_id": tenant_id,
+                "query": query,
+                "limit": limit,
+            },
+        )
+
+        if not result:
+            click.echo(f"{Fore.YELLOW}No results found{Style.RESET_ALL}")
+            return
+
+        click.echo(f"{Fore.GREEN}Found {len(result)} results:{Style.RESET_ALL}")
+        click.echo("")
+
+        for i, item in enumerate(result, 1):
+            click.echo(f"{Fore.CYAN}{i}. {item.get('title', 'N/A')}{Style.RESET_ALL}")
+            preview = item.get("content_preview", "")
+            if preview:
+                click.echo(f"   {preview[:100]}...")
+            click.echo("")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("docs-generate")
+@click.option("--project-name", required=True, help="Project name")
+@click.option("--description", default="", help="Project description")
+def libraries_docs_generate(project_name, description):
+    """Generate documentation using socratic-docs."""
+    try:
+        click.echo(f"{Fore.CYAN}Generating documentation for '{project_name}'...{Style.RESET_ALL}")
+
+        result = api_request(
+            "POST",
+            "/libraries/docs/generate-readme",
+            json_data={
+                "project_info": {
+                    "name": project_name,
+                    "description": description,
+                }
+            },
+        )
+
+        if result:
+            click.echo(f"{Fore.GREEN}Documentation generated!{Style.RESET_ALL}")
+            click.echo(f"\n{result}\n")
+        else:
+            click.echo(f"{Fore.YELLOW}Documentation generator unavailable{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
 @main.command()
 @click.option(
     "--log-level",
