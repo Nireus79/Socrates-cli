@@ -940,6 +940,115 @@ def libraries_security_validate(input):
         sys.exit(1)
 
 
+@libraries.command("llm-models")
+def libraries_llm_models():
+    """List available LLM models using socrates-nexus."""
+    try:
+        click.echo(f"{Fore.CYAN}Available LLM Models:{Style.RESET_ALL}")
+
+        result = api_request("GET", "/libraries/llm/models")
+
+        if result and result.get("providers"):
+            for provider, models in result["providers"].items():
+                click.echo(f"\n{Fore.CYAN}{provider.upper()}:{Style.RESET_ALL}")
+                for model in models:
+                    click.echo(f"  • {model}")
+            click.echo(f"\n{Fore.CYAN}Total: {result.get('total_models', 0)} models{Style.RESET_ALL}")
+        else:
+            click.echo(f"{Fore.YELLOW}No models available{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("llm-call")
+@click.option("--prompt", required=True, help="Prompt to send to LLM")
+@click.option("--model", default="claude-opus", help="Model to use")
+@click.option("--provider", default="anthropic", help="LLM provider")
+@click.option("--temperature", default=0.7, type=float, help="Temperature (0-2)")
+def libraries_llm_call(prompt, model, provider, temperature):
+    """Call an LLM using socrates-nexus."""
+    try:
+        click.echo(f"{Fore.CYAN}Calling {provider} {model}...{Style.RESET_ALL}")
+
+        result = api_request(
+            "POST",
+            "/libraries/llm/call",
+            params={
+                "prompt": prompt,
+                "model": model,
+                "provider": provider,
+                "temperature": temperature,
+            },
+        )
+
+        if result.get("status") == "success":
+            click.echo(f"{Fore.GREEN}Response received:{Style.RESET_ALL}")
+            click.echo(f"\n{result.get('response', 'No response')}\n")
+            click.echo(f"Tokens: {result.get('tokens_used', 0)}")
+            click.echo(f"Cost: ${result.get('cost_usd', 0):.4f}")
+        else:
+            click.echo(f"{Fore.RED}LLM call failed{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("system-info")
+def libraries_system_info():
+    """Get system information from socratic-core."""
+    try:
+        click.echo(f"{Fore.CYAN}System Information:{Style.RESET_ALL}")
+
+        result = api_request("GET", "/libraries/core/system-info")
+
+        if result:
+            click.echo(f"\nFramework: {result.get('framework')}")
+            click.echo(f"Version: {result.get('version')}")
+            click.echo(f"Status: {result.get('status')}")
+            if result.get("components"):
+                click.echo(f"\nComponents:")
+                for component in result["components"]:
+                    click.echo(f"  • {component}")
+        else:
+            click.echo(f"{Fore.YELLOW}Could not retrieve system info{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@libraries.command("config-show")
+def libraries_config_show():
+    """Show current system configuration."""
+    try:
+        click.echo(f"{Fore.CYAN}System Configuration:{Style.RESET_ALL}")
+
+        result = api_request("GET", "/libraries/core/config")
+
+        if result:
+            for key, value in result.items():
+                if key != "status":
+                    click.echo(f"  {key}: {value}")
+        else:
+            click.echo(f"{Fore.YELLOW}Could not retrieve configuration{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
 @main.command()
 @click.option(
     "--log-level",
