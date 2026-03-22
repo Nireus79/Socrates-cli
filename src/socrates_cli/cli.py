@@ -21,6 +21,8 @@ from colorama import Fore, Style, init
 
 from socratic_core import SocratesConfig, ConfigBuilder
 
+from socrates_cli.commands import get_command_client
+
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
 
@@ -268,6 +270,347 @@ def generate_code(project_id):
 
     except click.ClickException:
         raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def chat():
+    """Start interactive chat sessions."""
+    pass
+
+
+@chat.command("start")
+@click.option("--project-id", required=True, help="Project ID to chat about")
+@click.option("--session-id", default=None, help="Existing session ID to resume")
+def chat_start(project_id, session_id):
+    """Start an interactive chat session."""
+    try:
+        if session_id:
+            # Resume existing session
+            result = api_request("GET", f"/chat/sessions/{session_id}")
+            if result.get("status") != "success":
+                click.echo(f"{Fore.RED}Session not found{Style.RESET_ALL}", err=True)
+                sys.exit(1)
+            click.echo(f"{Fore.GREEN}Resumed session: {session_id}{Style.RESET_ALL}")
+        else:
+            # Create new session
+            result = api_request("POST", "/chat/sessions", json_data={"project_id": project_id})
+            if result.get("status") != "success":
+                click.echo(f"{Fore.RED}Failed to create session{Style.RESET_ALL}", err=True)
+                sys.exit(1)
+            session_id = result.get("data", {}).get("session_id")
+            click.echo(f"{Fore.GREEN}Session created: {session_id}{Style.RESET_ALL}")
+
+        # Interactive loop
+        click.echo(f"{Fore.CYAN}Chat Session Started (type 'exit' to quit){Style.RESET_ALL}")
+        while True:
+            user_input = input("\nYou: ")
+            if user_input.lower() == "exit":
+                break
+
+            # Send message
+            msg_result = api_request(
+                "POST",
+                f"/chat/sessions/{session_id}/messages",
+                json_data={"message": user_input},
+            )
+
+            if msg_result.get("status") == "success":
+                response = msg_result.get("data", {}).get("response", "")
+                click.echo(f"\n{Fore.CYAN}Socrates: {response}{Style.RESET_ALL}")
+            else:
+                click.echo(f"{Fore.RED}Error: {msg_result.get('message', 'Unknown error')}{Style.RESET_ALL}")
+
+    except click.ClickException:
+        raise
+    except KeyboardInterrupt:
+        click.echo(f"\n{Fore.YELLOW}Chat session ended{Style.RESET_ALL}")
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def knowledge():
+    """Manage project knowledge base."""
+    pass
+
+
+@knowledge.command("list")
+@click.option("--project-id", required=True, help="Project ID")
+def knowledge_list(project_id):
+    """List knowledge base documents."""
+    try:
+        result = api_request("GET", f"/projects/{project_id}/knowledge")
+
+        documents = result.get("data", [])
+        if not documents:
+            click.echo(f"{Fore.YELLOW}No documents in knowledge base{Style.RESET_ALL}")
+            return
+
+        click.echo(
+            f"{Fore.CYAN}{'ID':<12} {'Name':<40} {'Size (KB)':<12}{Style.RESET_ALL}"
+        )
+        click.echo("-" * 64)
+
+        for doc in documents:
+            size_kb = doc.get("size", 0) // 1024
+            click.echo(
+                f"{doc.get('id', 'N/A'):<12} {doc.get('name', 'N/A'):<40} {size_kb:<12}"
+            )
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@knowledge.command("import")
+@click.option("--project-id", required=True, help="Project ID")
+@click.option("--path", required=True, type=click.Path(exists=True), help="File path to import")
+def knowledge_import(project_id, path):
+    """Import a document into the knowledge base."""
+    try:
+        with open(path, "rb") as f:
+            files = {"file": f}
+            client = get_api_client()
+            response = client.post(
+                f"/projects/{project_id}/knowledge/import",
+                files=files,
+                headers={},  # httpx handles multipart
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            if result.get("status") == "success":
+                click.echo(f"{Fore.GREEN}Document imported successfully!{Style.RESET_ALL}")
+                click.echo(f"  Document ID: {result.get('data', {}).get('id')}")
+            else:
+                click.echo(f"{Fore.RED}Import failed: {result.get('message')}{Style.RESET_ALL}", err=True)
+                sys.exit(1)
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def analytics():
+    """View project analytics and metrics."""
+    pass
+
+
+@analytics.command("summary")
+@click.option("--project-id", required=True, help="Project ID")
+def analytics_summary(project_id):
+    """Show analytics summary for a project."""
+    try:
+        result = api_request("GET", f"/projects/{project_id}/analytics")
+
+        if result.get("status") != "success":
+            click.echo(f"{Fore.RED}Failed to fetch analytics{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+        analytics = result.get("data", {})
+
+        click.echo(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
+        click.echo(f"{Fore.CYAN}Project Analytics{Style.RESET_ALL}")
+        click.echo(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
+        click.echo("")
+
+        click.echo(f"Messages: {analytics.get('message_count', 0)}")
+        click.echo(f"Artifacts Generated: {analytics.get('artifact_count', 0)}")
+        click.echo(f"Session Duration: {analytics.get('total_duration_minutes', 0)} minutes")
+        click.echo(f"Last Active: {analytics.get('last_active', 'N/A')}")
+
+        click.echo("")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def collaboration():
+    """Manage project collaboration."""
+    pass
+
+
+@collaboration.command("add")
+@click.option("--project-id", required=True, help="Project ID")
+@click.option("--username", prompt="Username to invite", help="Username of collaborator")
+@click.option("--role", type=click.Choice(["viewer", "editor", "admin"]), default="editor")
+def collab_add(project_id, username, role):
+    """Invite a collaborator to the project."""
+    try:
+        result = api_request(
+            "POST",
+            f"/projects/{project_id}/collaborators",
+            json_data={"username": username, "role": role},
+        )
+
+        if result.get("status") == "success":
+            click.echo(f"{Fore.GREEN}Collaborator invited!{Style.RESET_ALL}")
+            click.echo(f"  User: {username}")
+            click.echo(f"  Role: {role}")
+        else:
+            click.echo(f"{Fore.RED}Failed: {result.get('message')}{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@collaboration.command("list")
+@click.option("--project-id", required=True, help="Project ID")
+def collab_list(project_id):
+    """List project collaborators."""
+    try:
+        result = api_request("GET", f"/projects/{project_id}/collaborators")
+
+        collaborators = result.get("data", [])
+        if not collaborators:
+            click.echo(f"{Fore.YELLOW}No collaborators{Style.RESET_ALL}")
+            return
+
+        click.echo(
+            f"{Fore.CYAN}{'Username':<20} {'Role':<15} {'Joined':<20}{Style.RESET_ALL}"
+        )
+        click.echo("-" * 55)
+
+        for collab in collaborators:
+            click.echo(
+                f"{collab.get('username', 'N/A'):<20} {collab.get('role', 'N/A'):<15} {collab.get('joined_date', 'N/A'):<20}"
+            )
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@main.group()
+def commands():
+    """Manage and discover available commands."""
+    pass
+
+
+@commands.command("list")
+@click.option("--category", default=None, help="Filter by category")
+def commands_list(category):
+    """List all available commands."""
+    try:
+        client = get_command_client(_api_url)
+        result = client.list_commands(category=category)
+
+        if result.get("status") != "success":
+            click.echo(f"{Fore.RED}Failed to list commands{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+        commands_dict = result.get("data", {})
+
+        if not commands_dict:
+            click.echo(f"{Fore.YELLOW}No commands found{Style.RESET_ALL}")
+            return
+
+        click.echo(
+            f"{Fore.CYAN}{'Command':<30} {'Category':<25} {'Description':<45}{Style.RESET_ALL}"
+        )
+        click.echo("-" * 100)
+
+        for cmd_name in sorted(commands_dict.keys()):
+            cmd_info = commands_dict[cmd_name]
+            category_name = cmd_info.get("category", "N/A")
+            description = cmd_info.get("description", "N/A")[:42] + "..."
+
+            click.echo(f"{cmd_name:<30} {category_name:<25} {description:<45}")
+
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@commands.command("categories")
+def commands_categories():
+    """List all command categories."""
+    try:
+        client = get_command_client(_api_url)
+        result = client.list_categories()
+
+        if result.get("status") != "success":
+            click.echo(f"{Fore.RED}Failed to list categories{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+        categories = result.get("data", [])
+
+        if not categories:
+            click.echo(f"{Fore.YELLOW}No categories found{Style.RESET_ALL}")
+            return
+
+        click.echo(f"{Fore.CYAN}Available Categories:{Style.RESET_ALL}")
+        for category in sorted(categories):
+            click.echo(f"  • {category}")
+
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@commands.command("help")
+@click.option("--command", default=None, help="Specific command to get help for")
+def commands_help(command):
+    """Get help documentation for commands."""
+    try:
+        client = get_command_client(_api_url)
+        result = client.get_help(command=command)
+
+        if result.get("status") != "success":
+            click.echo(f"{Fore.RED}Failed to get help{Style.RESET_ALL}", err=True)
+            sys.exit(1)
+
+        help_text = result.get("data", "")
+        click.echo(help_text)
+
+    except Exception as e:
+        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
+        sys.exit(1)
+
+
+@commands.command("search")
+@click.option("--query", prompt="Search query", help="Search for commands")
+def commands_search(query):
+    """Search for commands by name or description."""
+    try:
+        client = get_command_client(_api_url)
+        matching = client.search_commands(query)
+
+        if not matching:
+            click.echo(f"{Fore.YELLOW}No commands found matching '{query}'{Style.RESET_ALL}")
+            return
+
+        click.echo(f"{Fore.CYAN}Found {len(matching)} matching commands:{Style.RESET_ALL}")
+        for cmd_name in sorted(matching):
+            click.echo(f"  • {cmd_name}")
+
+        # Offer to show help
+        if len(matching) == 1:
+            show_help = click.confirm(f"\nShow help for '{matching[0]}'?")
+            if show_help:
+                result = client.get_help(command=matching[0])
+                help_text = result.get("data", "")
+                click.echo(f"\n{help_text}")
+
     except Exception as e:
         click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
         sys.exit(1)
