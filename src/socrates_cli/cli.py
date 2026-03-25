@@ -798,7 +798,7 @@ def note():
 
 
 @note.command("add")
-@click.argument("type_", argument_name="type")
+@click.argument("type_")
 @click.argument("title")
 @click.option("--category", type=click.Choice(["design", "bug", "idea", "task", "general"]),
               default="general")
