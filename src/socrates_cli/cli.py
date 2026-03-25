@@ -116,7 +116,7 @@ def print_response(response: Dict[str, Any], json_output: bool = False) -> None:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="socrates")
+@click.version_option(version="0.1.0", prog_name="socrates-cli")
 @click.option("--api-url", envvar="SOCRATES_API_URL", default="http://localhost:8000",
               help="Socrates API server URL")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
@@ -217,7 +217,7 @@ def status():
         raise
 
 
-@main.command()
+@main.command("exit")
 def exit_cmd():
     """Exit the application."""
     click.echo("Goodbye!")
@@ -967,10 +967,10 @@ def maturity_history():
 # Utility Commands
 # ============================================================================
 
-@main.command()
-def version():
+@main.command("version")
+def version_cmd():
     """Show version information."""
-    click.echo("Socrates CLI version 0.1.0")
+    click.echo("socrates-cli version 0.1.0")
 
 
 if __name__ == "__main__":
