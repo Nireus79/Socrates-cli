@@ -1,27 +1,23 @@
 """
-Socrates CLI - Command-line interface for Socrates AI
+Socrates CLI - Complete command-line interface for Socrates AI
 
-Provides a user-friendly command-line interface to the Socrates AI platform.
-Can operate in two modes:
-1. API mode (recommended): Connects to a running Socrates API server
-2. Standalone mode: Uses local orchestrator (requires socrates-ai package)
-
-Uses Click for command-line argument parsing and colorama for colored output.
+Provides Click-based commands that call the Socrates API server.
+All commands require a running Socrates API server at SOCRATES_API_URL
+(default: http://localhost:8000)
 """
 
+import json
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 import click
 import httpx
 from colorama import Fore, Style, init
 
-from socratic_core import SocratesConfig, ConfigBuilder
-
-from socrates_cli.commands import get_command_client
+from socratic_core import ConfigBuilder, SocratesConfig
 
 # Initialize colorama for cross-platform colored output
 init(autoreset=True)
@@ -46,23 +42,12 @@ def get_api_client() -> httpx.Client:
 
 
 def api_request(
-    method: str, endpoint: str, json_data: Optional[dict] = None, **kwargs
+    method: str,
+    endpoint: str,
+    json_data: Optional[dict] = None,
+    **kwargs,
 ) -> dict:
-    """
-    Make a request to the Socrates API.
-
-    Args:
-        method: HTTP method (GET, POST, PUT, DELETE)
-        endpoint: API endpoint path
-        json_data: JSON payload for POST/PUT requests
-        **kwargs: Additional httpx.Client.request arguments
-
-    Returns:
-        Response data as dictionary
-
-    Raises:
-        click.ClickException: If API request fails
-    """
+    """Make a request to the Socrates API."""
     try:
         client = get_api_client()
         response = client.request(method, endpoint, json=json_data, **kwargs)
@@ -83,63 +68,109 @@ def api_request(
         )
 
 
+def execute_command(command: str, args: List[str] = None, **context) -> Dict[str, Any]:
+    """Execute a command via the API."""
+    payload = {
+        "command": command,
+        "args": args or [],
+    }
+    payload.update(context)
+    response = api_request("POST", "/commands/execute", json_data=payload)
+    return response
+
+
+def print_response(response: Dict[str, Any], json_output: bool = False) -> None:
+    """Pretty-print an API response."""
+    if json_output:
+        click.echo(json.dumps(response.get("data", response), indent=2))
+    else:
+        status = response.get("status", "unknown")
+        message = response.get("message", "")
+        data = response.get("data", {})
+
+        if status == "success":
+            click.echo(f"{Fore.GREEN}✓ Success{Style.RESET_ALL}")
+            if message:
+                click.echo(f"  {message}")
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if isinstance(value, (dict, list)):
+                        click.echo(f"  {key}:")
+                        click.echo(f"    {json.dumps(value, indent=6)}")
+                    else:
+                        click.echo(f"  {key}: {value}")
+            elif isinstance(data, list):
+                for item in data:
+                    click.echo(f"  - {item}")
+            else:
+                click.echo(f"  {data}")
+        elif status == "error":
+            click.echo(f"{Fore.RED}✗ Error{Style.RESET_ALL}")
+            if message:
+                click.echo(f"  {message}")
+            sys.exit(1)
+        else:
+            click.echo(f"{Fore.YELLOW}ℹ {status.upper()}{Style.RESET_ALL}")
+            if message:
+                click.echo(f"  {message}")
+
+
 @click.group()
-@click.version_option(version="1.3.3", prog_name="socrates")
+@click.version_option(version="0.1.0", prog_name="socrates")
+@click.option("--api-url", envvar="SOCRATES_API_URL", default="http://localhost:8000",
+              help="Socrates API server URL")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 @click.pass_context
-def main(ctx):
+def main(ctx, api_url, json_output):
     """
     Socrates AI - A Socratic method tutoring system powered by Claude AI
 
-    Use 'socrates COMMAND --help' for more information on a command.
+    Connect to a running Socrates API server to manage projects, generate code,
+    and track your learning progress.
 
     Examples:
-        socrates init                  Initialize a new Socrates project
-        socrates project create        Create a new project
-        socrates ask                   Ask a Socratic question
-        socrates generate-code         Generate code for your project
+        socrates init                      Initialize CLI configuration
+        socrates project create            Create a new project
+        socrates project list              List your projects
+        socrates chat                      Start interactive chat
+        socrates code generate             Generate code for your project
+        socrates docs import PATH          Import documentation
 
     API Configuration:
-        Set SOCRATES_API_URL to change the API server (default: http://localhost:8000)
+        Set SOCRATES_API_URL to change the API server
+        Default: http://localhost:8000
     """
+    global _api_url
+    _api_url = api_url
     ctx.ensure_object(dict)
+    ctx.obj["json_output"] = json_output
 
+
+# ============================================================================
+# System Commands
+# ============================================================================
 
 @main.command()
-@click.option(
-    "--api-key",
-    envvar="ANTHROPIC_API_KEY",
-    prompt=False,
-    hide_input=True,
-    help="Claude API key (or set ANTHROPIC_API_KEY env var)",
-)
-@click.option(
-    "--data-dir",
-    type=click.Path(),
-    default=None,
-    help="Data directory for storing projects (defaults to ~/.socrates)",
-)
+@click.option("--api-key", envvar="ANTHROPIC_API_KEY", prompt=False,
+              hide_input=True, help="Claude API key")
+@click.option("--data-dir", type=click.Path(), default=None,
+              help="Data directory for projects")
 def init(api_key, data_dir):
-    """
-    Initialize Socrates configuration.
-
-    Creates necessary directories and validates your Claude API key.
-    """
+    """Initialize Socrates configuration."""
     if not api_key:
         api_key = click.prompt("Enter your Claude API key", hide_input=True)
 
     try:
-        # Test the configuration locally
         config = ConfigBuilder(api_key)
         if data_dir:
             config = config.with_data_dir(Path(data_dir))
         config = config.build()
 
-        # Test API connection
         try:
-            result = api_request("GET", "/health")
+            api_request("GET", "/health")
             click.echo(f"{Fore.GREEN}API Server: OK{Style.RESET_ALL}")
-        except click.ClickException as e:
-            click.echo(f"{Fore.YELLOW}Warning: {e}{Style.RESET_ALL}")
+        except click.ClickException:
+            click.echo(f"{Fore.YELLOW}Warning: Could not connect to API server{Style.RESET_ALL}")
 
         click.echo(f"{Fore.GREEN}Socrates initialized successfully!{Style.RESET_ALL}")
         click.echo(f"  Data directory: {config.data_dir}")
@@ -151,6 +182,189 @@ def init(api_key, data_dir):
         sys.exit(1)
 
 
+@main.command()
+@click.option("--command", help="Specific command to get help for")
+@click.pass_context
+def help(ctx, command):
+    """Show help documentation."""
+    try:
+        if command:
+            response = api_request("GET", "/commands/help", params={"command": command})
+        else:
+            response = api_request("GET", "/commands/help")
+        print_response(response, ctx.obj.get("json_output", False))
+    except click.ClickException:
+        raise
+
+
+@main.command()
+def info():
+    """Show system information."""
+    try:
+        response = execute_command("info")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@main.command()
+def status():
+    """Show system status."""
+    try:
+        response = execute_command("status")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@main.command()
+def exit_cmd():
+    """Exit the application."""
+    click.echo("Goodbye!")
+    sys.exit(0)
+
+
+# ============================================================================
+# User Commands
+# ============================================================================
+
+@main.group()
+def user():
+    """Manage user account."""
+    pass
+
+
+@user.command("login")
+def user_login():
+    """Login to your account."""
+    try:
+        response = execute_command("user login")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@user.command("create")
+def user_create():
+    """Create a new account."""
+    try:
+        response = execute_command("user create")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@user.command("logout")
+def user_logout():
+    """Logout from your account."""
+    try:
+        response = execute_command("user logout")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@user.command("archive")
+def user_archive():
+    """Archive your account."""
+    try:
+        response = execute_command("user archive")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@user.command("delete")
+def user_delete():
+    """Permanently delete your account."""
+    if click.confirm("Are you sure? This cannot be undone."):
+        try:
+            response = execute_command("user delete")
+            print_response(response)
+        except click.ClickException:
+            raise
+
+
+@user.command("restore")
+def user_restore():
+    """Restore an archived account."""
+    try:
+        response = execute_command("user restore")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Subscription Commands
+# ============================================================================
+
+@main.group()
+def subscription():
+    """Manage subscription."""
+    pass
+
+
+@subscription.command("status")
+def subscription_status():
+    """Show subscription status and usage."""
+    try:
+        response = execute_command("subscription status")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@subscription.command("upgrade")
+@click.argument("tier", required=False)
+def subscription_upgrade(tier):
+    """Upgrade your subscription."""
+    args = [tier] if tier else []
+    try:
+        response = execute_command("subscription upgrade", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@subscription.command("downgrade")
+@click.argument("tier", required=False)
+def subscription_downgrade(tier):
+    """Downgrade your subscription."""
+    args = [tier] if tier else []
+    try:
+        response = execute_command("subscription downgrade", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@subscription.command("compare")
+def subscription_compare():
+    """Compare subscription tiers."""
+    try:
+        response = execute_command("subscription compare")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@subscription.command("testing-mode")
+@click.argument("action", type=click.Choice(["on", "off", "status"]), default="status")
+def subscription_testing_mode(action):
+    """Enable/disable testing mode."""
+    args = [action]
+    try:
+        response = execute_command("subscription testing-mode", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Project Commands
+# ============================================================================
+
 @main.group()
 def project():
     """Manage projects."""
@@ -159,74 +373,180 @@ def project():
 
 @project.command("create")
 @click.option("--name", prompt="Project name", help="Name of the project")
-@click.option("--owner", prompt="Owner username", help="Project owner")
+@click.option("--type", "project_type", help="Project type (software, business, etc.)")
 @click.option("--description", default="", help="Project description")
-def project_create(name, owner, description):
+def project_create(name, project_type, description):
     """Create a new project."""
+    args = [name]
+    if project_type:
+        args.append(project_type)
+    if description:
+        args.append(description)
     try:
-        result = api_request(
-            "POST",
-            "/projects",
-            json_data={
-                "name": name,
-                "owner": owner,
-                "description": description,
-            },
-        )
-
-        if result.get("status") == "success":
-            project = result.get("data", {})
-            click.echo(f"{Fore.GREEN}Project created successfully!{Style.RESET_ALL}")
-            click.echo(f"  Project ID: {project.get('project_id', 'N/A')}")
-            click.echo(f"  Name: {project.get('name', 'N/A')}")
-        else:
-            message = result.get("message", "Unknown error")
-            click.echo(
-                f"{Fore.RED}Failed to create project: {message}{Style.RESET_ALL}",
-                err=True,
-            )
-            sys.exit(1)
-
+        response = execute_command("project create", args)
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
 @project.command("list")
-@click.option("--owner", default=None, help="Filter by project owner")
-def project_list(owner):
-    """List projects."""
+@click.option("--json", "json_format", is_flag=True, help="Output as JSON")
+def project_list(json_format):
+    """List all projects."""
     try:
-        params = {}
-        if owner:
-            params["owner"] = owner
-
-        result = api_request("GET", "/projects", params=params)
-
-        projects = result.get("data", [])
-
-        if not projects:
-            click.echo(f"{Fore.YELLOW}No projects found{Style.RESET_ALL}")
-            return
-
-        click.echo(
-            f"{Fore.CYAN}{'ID':<8} {'Name':<20} {'Owner':<15}{Style.RESET_ALL}"
-        )
-        click.echo("-" * 43)
-
-        for project in projects:
-            click.echo(
-                f"{project.get('project_id', 'N/A'):<8} {project.get('name', 'N/A'):<20} {project.get('owner', 'N/A'):<15}"
-            )
-
+        response = execute_command("project list")
+        print_response(response, json_format)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
+
+@project.command("load")
+def project_load():
+    """Load an existing project."""
+    try:
+        response = execute_command("project load")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("archive")
+def project_archive():
+    """Archive the current project."""
+    try:
+        response = execute_command("project archive")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("restore")
+def project_restore():
+    """Restore an archived project."""
+    try:
+        response = execute_command("project restore")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("delete")
+def project_delete():
+    """Permanently delete a project."""
+    if click.confirm("Are you sure? This cannot be undone."):
+        try:
+            response = execute_command("project delete")
+            print_response(response)
+        except click.ClickException:
+            raise
+
+
+@project.command("analyze")
+@click.argument("project_id", required=False)
+def project_analyze(project_id):
+    """Analyze project code comprehensively."""
+    args = [project_id] if project_id else []
+    try:
+        response = execute_command("project analyze", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("test")
+@click.argument("project_id", required=False)
+def project_test(project_id):
+    """Run project test suite."""
+    args = [project_id] if project_id else []
+    try:
+        response = execute_command("project test", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("validate")
+@click.argument("project_id", required=False)
+def project_validate(project_id):
+    """Validate project structure."""
+    args = [project_id] if project_id else []
+    try:
+        response = execute_command("project validate", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("fix")
+@click.argument("issue_type", required=False, default="all",
+                type=click.Choice(["all", "syntax", "dependencies"]))
+def project_fix(issue_type):
+    """Apply automated fixes to project."""
+    args = [issue_type]
+    try:
+        response = execute_command("project fix", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("review")
+@click.argument("project_id", required=False)
+def project_review(project_id):
+    """Get comprehensive code review."""
+    args = [project_id] if project_id else []
+    try:
+        response = execute_command("project review", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("diff")
+@click.argument("project_id", required=False)
+def project_diff(project_id):
+    """Compare validation runs."""
+    args = [project_id] if project_id else []
+    try:
+        response = execute_command("project diff", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("status")
+def project_status():
+    """Show project status."""
+    try:
+        response = execute_command("project status")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("progress")
+def project_progress():
+    """Show project progress metrics."""
+    try:
+        response = execute_command("project progress")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@project.command("stats")
+def project_stats():
+    """View comprehensive project statistics."""
+    try:
+        response = execute_command("project stats")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Code Commands
+# ============================================================================
 
 @main.group()
 def code():
@@ -235,872 +555,423 @@ def code():
 
 
 @code.command("generate")
-@click.option("--project-id", prompt="Project ID", help="Project ID to generate code for")
-def generate_code(project_id):
-    """Generate code for a project."""
+@click.argument("prompt", required=False)
+@click.option("--output", "-o", type=click.Path(), help="Save to file")
+def code_generate(prompt, output):
+    """Generate code for your project."""
+    args = [prompt] if prompt else []
+    if output:
+        args.append(f"--output={output}")
     try:
-        # Load the project first
-        result = api_request("GET", f"/projects/{project_id}")
-
-        if not result.get("status") == "success":
-            click.echo(f"{Fore.RED}Project not found{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-        project = result.get("data", {})
-
-        # Generate code
-        click.echo(
-            f"{Fore.CYAN}Generating code for project '{project.get('name')}'...{Style.RESET_ALL}"
-        )
-
-        code_result = api_request(
-            "POST",
-            f"/projects/{project_id}/code/generate",
-            json_data={},
-        )
-
-        script = code_result.get("data", {}).get("code", "")
-        lines = len(script.split("\n"))
-
-        click.echo(f"{Fore.GREEN}Code generated successfully!{Style.RESET_ALL}")
-        click.echo(f"  Lines of code: {lines}")
-        click.echo("")
-        click.echo(f"{Fore.CYAN}--- Generated Code ---{Style.RESET_ALL}")
-        click.echo(script)
-
+        response = execute_command("code generate", args)
+        print_response(response)
+        if output:
+            click.echo(f"{Fore.GREEN}Code saved to: {output}{Style.RESET_ALL}")
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
+
+@code.command("docs")
+def code_docs():
+    """Generate code documentation."""
+    try:
+        response = execute_command("code docs")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Documentation Commands
+# ============================================================================
 
 @main.group()
-def chat():
-    """Start interactive chat sessions."""
+def docs():
+    """Manage documentation."""
     pass
 
 
-@chat.command("start")
-@click.option("--project-id", required=True, help="Project ID to chat about")
-@click.option("--session-id", default=None, help="Existing session ID to resume")
-def chat_start(project_id, session_id):
-    """Start an interactive chat session."""
+@docs.command("list")
+def docs_list():
+    """List imported documents."""
     try:
-        if session_id:
-            # Resume existing session
-            result = api_request("GET", f"/chat/sessions/{session_id}")
-            if result.get("status") != "success":
-                click.echo(f"{Fore.RED}Session not found{Style.RESET_ALL}", err=True)
-                sys.exit(1)
-            click.echo(f"{Fore.GREEN}Resumed session: {session_id}{Style.RESET_ALL}")
-        else:
-            # Create new session
-            result = api_request("POST", "/chat/sessions", json_data={"project_id": project_id})
-            if result.get("status") != "success":
-                click.echo(f"{Fore.RED}Failed to create session{Style.RESET_ALL}", err=True)
-                sys.exit(1)
-            session_id = result.get("data", {}).get("session_id")
-            click.echo(f"{Fore.GREEN}Session created: {session_id}{Style.RESET_ALL}")
-
-        # Interactive loop
-        click.echo(f"{Fore.CYAN}Chat Session Started (type 'exit' to quit){Style.RESET_ALL}")
-        while True:
-            user_input = input("\nYou: ")
-            if user_input.lower() == "exit":
-                break
-
-            # Send message
-            msg_result = api_request(
-                "POST",
-                f"/chat/sessions/{session_id}/messages",
-                json_data={"message": user_input},
-            )
-
-            if msg_result.get("status") == "success":
-                response = msg_result.get("data", {}).get("response", "")
-                click.echo(f"\n{Fore.CYAN}Socrates: {response}{Style.RESET_ALL}")
-            else:
-                click.echo(f"{Fore.RED}Error: {msg_result.get('message', 'Unknown error')}{Style.RESET_ALL}")
-
+        response = execute_command("docs list")
+        print_response(response)
     except click.ClickException:
         raise
-    except KeyboardInterrupt:
-        click.echo(f"\n{Fore.YELLOW}Chat session ended{Style.RESET_ALL}")
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
-@main.group()
-def knowledge():
-    """Manage project knowledge base."""
-    pass
-
-
-@knowledge.command("list")
-@click.option("--project-id", required=True, help="Project ID")
-def knowledge_list(project_id):
-    """List knowledge base documents."""
+@docs.command("import")
+@click.argument("path", type=click.Path(exists=True))
+def docs_import(path):
+    """Import a document file."""
+    args = [path]
     try:
-        result = api_request("GET", f"/projects/{project_id}/knowledge")
-
-        documents = result.get("data", [])
-        if not documents:
-            click.echo(f"{Fore.YELLOW}No documents in knowledge base{Style.RESET_ALL}")
-            return
-
-        click.echo(
-            f"{Fore.CYAN}{'ID':<12} {'Name':<40} {'Size (KB)':<12}{Style.RESET_ALL}"
-        )
-        click.echo("-" * 64)
-
-        for doc in documents:
-            size_kb = doc.get("size", 0) // 1024
-            click.echo(
-                f"{doc.get('id', 'N/A'):<12} {doc.get('name', 'N/A'):<40} {size_kb:<12}"
-            )
-
+        response = execute_command("docs import", args)
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
-@knowledge.command("import")
-@click.option("--project-id", required=True, help="Project ID")
-@click.option("--path", required=True, type=click.Path(exists=True), help="File path to import")
-def knowledge_import(project_id, path):
-    """Import a document into the knowledge base."""
+@docs.command("import-dir")
+@click.argument("path", type=click.Path(exists=True))
+def docs_import_dir(path):
+    """Import a directory of documents."""
+    args = [path]
     try:
-        with open(path, "rb") as f:
-            files = {"file": f}
-            client = get_api_client()
-            response = client.post(
-                f"/projects/{project_id}/knowledge/import",
-                files=files,
-                headers={},  # httpx handles multipart
-            )
-            response.raise_for_status()
-            result = response.json()
-
-            if result.get("status") == "success":
-                click.echo(f"{Fore.GREEN}Document imported successfully!{Style.RESET_ALL}")
-                click.echo(f"  Document ID: {result.get('data', {}).get('id')}")
-            else:
-                click.echo(f"{Fore.RED}Import failed: {result.get('message')}{Style.RESET_ALL}", err=True)
-                sys.exit(1)
-
+        response = execute_command("docs import-dir", args)
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
-@main.group()
-def analytics():
-    """View project analytics and metrics."""
-    pass
-
-
-@analytics.command("summary")
-@click.option("--project-id", required=True, help="Project ID")
-def analytics_summary(project_id):
-    """Show analytics summary for a project."""
+@docs.command("import-url")
+@click.argument("url")
+def docs_import_url(url):
+    """Import documentation from a URL."""
+    args = [url]
     try:
-        result = api_request("GET", f"/projects/{project_id}/analytics")
-
-        if result.get("status") != "success":
-            click.echo(f"{Fore.RED}Failed to fetch analytics{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-        analytics = result.get("data", {})
-
-        click.echo(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
-        click.echo(f"{Fore.CYAN}Project Analytics{Style.RESET_ALL}")
-        click.echo(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
-        click.echo("")
-
-        click.echo(f"Messages: {analytics.get('message_count', 0)}")
-        click.echo(f"Artifacts Generated: {analytics.get('artifact_count', 0)}")
-        click.echo(f"Session Duration: {analytics.get('total_duration_minutes', 0)} minutes")
-        click.echo(f"Last Active: {analytics.get('last_active', 'N/A')}")
-
-        click.echo("")
-
+        response = execute_command("docs import-url", args)
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
-@main.group()
-def collaboration():
-    """Manage project collaboration."""
-    pass
-
-
-@collaboration.command("add")
-@click.option("--project-id", required=True, help="Project ID")
-@click.option("--username", prompt="Username to invite", help="Username of collaborator")
-@click.option("--role", type=click.Choice(["viewer", "editor", "admin"]), default="editor")
-def collab_add(project_id, username, role):
-    """Invite a collaborator to the project."""
+@docs.command("paste")
+def docs_paste():
+    """Paste content into knowledge base."""
     try:
-        result = api_request(
-            "POST",
-            f"/projects/{project_id}/collaborators",
-            json_data={"username": username, "role": role},
-        )
-
-        if result.get("status") == "success":
-            click.echo(f"{Fore.GREEN}Collaborator invited!{Style.RESET_ALL}")
-            click.echo(f"  User: {username}")
-            click.echo(f"  Role: {role}")
-        else:
-            click.echo(f"{Fore.RED}Failed: {result.get('message')}{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
+        response = execute_command("docs paste")
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
-@collaboration.command("list")
-@click.option("--project-id", required=True, help="Project ID")
-def collab_list(project_id):
-    """List project collaborators."""
+# ============================================================================
+# Chat Commands
+# ============================================================================
+
+@main.command()
+@click.option("--mode", type=click.Choice(["socratic", "direct"]), default="socratic",
+              help="Chat mode")
+def chat(mode):
+    """Start interactive chat."""
+    args = [mode]
     try:
-        result = api_request("GET", f"/projects/{project_id}/collaborators")
-
-        collaborators = result.get("data", [])
-        if not collaborators:
-            click.echo(f"{Fore.YELLOW}No collaborators{Style.RESET_ALL}")
-            return
-
-        click.echo(
-            f"{Fore.CYAN}{'Username':<20} {'Role':<15} {'Joined':<20}{Style.RESET_ALL}"
-        )
-        click.echo("-" * 55)
-
-        for collab in collaborators:
-            click.echo(
-                f"{collab.get('username', 'N/A'):<20} {collab.get('role', 'N/A'):<15} {collab.get('joined_date', 'N/A'):<20}"
-            )
-
+        response = execute_command("chat", args)
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@main.group()
-def commands():
-    """Manage and discover available commands."""
-    pass
-
-
-@commands.command("list")
-@click.option("--category", default=None, help="Filter by category")
-def commands_list(category):
-    """List all available commands."""
-    try:
-        client = get_command_client(_api_url)
-        result = client.list_commands(category=category)
-
-        if result.get("status") != "success":
-            click.echo(f"{Fore.RED}Failed to list commands{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-        commands_dict = result.get("data", {})
-
-        if not commands_dict:
-            click.echo(f"{Fore.YELLOW}No commands found{Style.RESET_ALL}")
-            return
-
-        click.echo(
-            f"{Fore.CYAN}{'Command':<30} {'Category':<25} {'Description':<45}{Style.RESET_ALL}"
-        )
-        click.echo("-" * 100)
-
-        for cmd_name in sorted(commands_dict.keys()):
-            cmd_info = commands_dict[cmd_name]
-            category_name = cmd_info.get("category", "N/A")
-            description = cmd_info.get("description", "N/A")[:42] + "..."
-
-            click.echo(f"{cmd_name:<30} {category_name:<25} {description:<45}")
-
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@commands.command("categories")
-def commands_categories():
-    """List all command categories."""
-    try:
-        client = get_command_client(_api_url)
-        result = client.list_categories()
-
-        if result.get("status") != "success":
-            click.echo(f"{Fore.RED}Failed to list categories{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-        categories = result.get("data", [])
-
-        if not categories:
-            click.echo(f"{Fore.YELLOW}No categories found{Style.RESET_ALL}")
-            return
-
-        click.echo(f"{Fore.CYAN}Available Categories:{Style.RESET_ALL}")
-        for category in sorted(categories):
-            click.echo(f"  • {category}")
-
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@commands.command("help")
-@click.option("--command", default=None, help="Specific command to get help for")
-def commands_help(command):
-    """Get help documentation for commands."""
-    try:
-        client = get_command_client(_api_url)
-        result = client.get_help(command=command)
-
-        if result.get("status") != "success":
-            click.echo(f"{Fore.RED}Failed to get help{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-        help_text = result.get("data", "")
-        click.echo(help_text)
-
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@commands.command("search")
-@click.option("--query", prompt="Search query", help="Search for commands")
-def commands_search(query):
-    """Search for commands by name or description."""
-    try:
-        client = get_command_client(_api_url)
-        matching = client.search_commands(query)
-
-        if not matching:
-            click.echo(f"{Fore.YELLOW}No commands found matching '{query}'{Style.RESET_ALL}")
-            return
-
-        click.echo(f"{Fore.CYAN}Found {len(matching)} matching commands:{Style.RESET_ALL}")
-        for cmd_name in sorted(matching):
-            click.echo(f"  • {cmd_name}")
-
-        # Offer to show help
-        if len(matching) == 1:
-            show_help = click.confirm(f"\nShow help for '{matching[0]}'?")
-            if show_help:
-                result = client.get_help(command=matching[0])
-                help_text = result.get("data", "")
-                click.echo(f"\n{help_text}")
-
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@main.group()
-def libraries():
-    """Manage Socratic ecosystem library integrations."""
-    pass
-
-
-@libraries.command("status")
-def libraries_status():
-    """Show status of all library integrations."""
-    try:
-        result = api_request("GET", "/libraries/status")
-
-        if result.get("status") == "error":
-            click.echo(f"{Fore.RED}Failed to get library status{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-        click.echo(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-        click.echo(f"{Fore.CYAN}Socratic Library Integration Status{Style.RESET_ALL}")
-        click.echo(f"{Fore.CYAN}{'=' * 60}{Style.RESET_ALL}")
-        click.echo("")
-
-        libraries_info = result.get("libraries", {})
-        enabled = result.get("enabled", 0)
-        total = result.get("total", 0)
-
-        click.echo(f"Overall: {enabled}/{total} libraries enabled")
-        click.echo("")
-
-        click.echo(f"{Fore.CYAN}{'Library':<25} {'Status':<15}{Style.RESET_ALL}")
-        click.echo("-" * 40)
-
-        for lib_name, is_enabled in libraries_info.items():
-            status = f"{Fore.GREEN}Enabled{Style.RESET_ALL}" if is_enabled else f"{Fore.YELLOW}Disabled{Style.RESET_ALL}"
-            click.echo(f"{lib_name:<25} {status}")
-
-        click.echo("")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("analyze")
-@click.option("--file", required=True, type=click.Path(exists=True), help="Python file to analyze")
-def libraries_analyze(file):
-    """Analyze code quality using socratic-analyzer."""
-    try:
-        with open(file, "r") as f:
-            code = f.read()
-
-        click.echo(f"{Fore.CYAN}Analyzing code in '{file}'...{Style.RESET_ALL}")
-
-        result = api_request(
-            "POST",
-            "/libraries/analyzer/analyze-code",
-            json_data={"code": code, "filename": file},
-        )
-
-        if not result:
-            click.echo(f"{Fore.YELLOW}Code analyzer unavailable{Style.RESET_ALL}")
-            return
-
-        click.echo(f"{Fore.GREEN}Analysis complete!{Style.RESET_ALL}")
-        click.echo("")
-
-        quality_score = result.get("quality_score", 0)
-        issues_count = result.get("issues_count", 0)
-
-        click.echo(f"Quality Score: {Fore.CYAN}{quality_score}/100{Style.RESET_ALL}")
-        click.echo(f"Issues Found: {issues_count}")
-
-        recommendations = result.get("recommendations", [])
-        if recommendations:
-            click.echo(f"\n{Fore.CYAN}Recommendations:{Style.RESET_ALL}")
-            for rec in recommendations[:5]:
-                click.echo(f"  • {rec}")
-
-        click.echo("")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("knowledge-store")
-@click.option("--tenant-id", required=True, help="Organization/tenant ID")
-@click.option("--title", required=True, help="Knowledge item title")
-@click.option("--content", required=True, help="Knowledge content")
-@click.option("--tags", multiple=True, help="Tags for categorization")
-def libraries_knowledge_store(tenant_id, title, content, tags):
-    """Store knowledge in socratic-knowledge."""
-    try:
-        click.echo(f"{Fore.CYAN}Storing knowledge item...{Style.RESET_ALL}")
-
-        result = api_request(
-            "POST",
-            "/libraries/knowledge/store",
-            json_data={
-                "tenant_id": tenant_id,
-                "title": title,
-                "content": content,
-                "tags": list(tags) if tags else [],
-            },
-        )
-
-        if result.get("status") == "stored" or result.get("item_id"):
-            click.echo(f"{Fore.GREEN}Knowledge stored successfully!{Style.RESET_ALL}")
-            if result.get("item_id"):
-                click.echo(f"  Item ID: {result.get('item_id')}")
-        else:
-            click.echo(f"{Fore.YELLOW}Knowledge system unavailable{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("knowledge-search")
-@click.option("--tenant-id", required=True, help="Organization/tenant ID")
-@click.option("--query", required=True, help="Search query")
-@click.option("--limit", default=5, type=int, help="Max results")
-def libraries_knowledge_search(tenant_id, query, limit):
-    """Search knowledge base using socratic-knowledge."""
-    try:
-        click.echo(f"{Fore.CYAN}Searching knowledge base...{Style.RESET_ALL}")
-
-        result = api_request(
-            "GET",
-            "/libraries/knowledge/search",
-            params={
-                "tenant_id": tenant_id,
-                "query": query,
-                "limit": limit,
-            },
-        )
-
-        if not result:
-            click.echo(f"{Fore.YELLOW}No results found{Style.RESET_ALL}")
-            return
-
-        click.echo(f"{Fore.GREEN}Found {len(result)} results:{Style.RESET_ALL}")
-        click.echo("")
-
-        for i, item in enumerate(result, 1):
-            click.echo(f"{Fore.CYAN}{i}. {item.get('title', 'N/A')}{Style.RESET_ALL}")
-            preview = item.get("content_preview", "")
-            if preview:
-                click.echo(f"   {preview[:100]}...")
-            click.echo("")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("docs-generate")
-@click.option("--project-name", required=True, help="Project name")
-@click.option("--description", default="", help="Project description")
-def libraries_docs_generate(project_name, description):
-    """Generate documentation using socratic-docs."""
-    try:
-        click.echo(f"{Fore.CYAN}Generating documentation for '{project_name}'...{Style.RESET_ALL}")
-
-        result = api_request(
-            "POST",
-            "/libraries/docs/generate-readme",
-            json_data={
-                "project_info": {
-                    "name": project_name,
-                    "description": description,
-                }
-            },
-        )
-
-        if result:
-            click.echo(f"{Fore.GREEN}Documentation generated!{Style.RESET_ALL}")
-            click.echo(f"\n{result}\n")
-        else:
-            click.echo(f"{Fore.YELLOW}Documentation generator unavailable{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("workflow-execute")
-@click.option("--name", required=True, help="Workflow name")
-def libraries_workflow_execute(name):
-    """Execute a workflow using socratic-workflow."""
-    try:
-        click.echo(f"{Fore.CYAN}Executing workflow '{name}'...{Style.RESET_ALL}")
-
-        result = api_request(
-            "POST",
-            "/libraries/workflow/execute",
-            params={"workflow_name": name, "parameters": {}},
-        )
-
-        if result.get("success"):
-            click.echo(f"{Fore.GREEN}Workflow executed successfully!{Style.RESET_ALL}")
-            click.echo(f"  Duration: {result.get('duration_ms', 0)}ms")
-        else:
-            click.echo(f"{Fore.YELLOW}{result.get('message', 'Workflow execution failed')}{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("performance-metrics")
-def libraries_performance_metrics():
-    """Get performance metrics using socratic-performance."""
-    try:
-        click.echo(f"{Fore.CYAN}Retrieving performance metrics...{Style.RESET_ALL}")
-
-        result = api_request("GET", "/libraries/performance/metrics")
-
-        if result:
-            click.echo(f"{Fore.GREEN}Performance Metrics:{Style.RESET_ALL}")
-            for key, value in result.items():
-                if key not in ["status", "message"]:
-                    click.echo(f"  {key}: {value}")
-        else:
-            click.echo(f"{Fore.YELLOW}No performance data available{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("rag-search")
-@click.option("--query", required=True, help="Search query")
-@click.option("--limit", default=5, type=int, help="Max results")
-def libraries_rag_search(query, limit):
-    """Search RAG system using socratic-rag."""
-    try:
-        click.echo(f"{Fore.CYAN}Searching RAG system for '{query}'...{Style.RESET_ALL}")
-
-        result = api_request(
-            "GET",
-            "/libraries/rag/search",
-            params={"query": query, "limit": limit},
-        )
-
-        if result:
-            click.echo(f"{Fore.GREEN}Found {len(result)} results:{Style.RESET_ALL}")
-            for i, item in enumerate(result, 1):
-                click.echo(f"{i}. {item.get('source', 'Unknown')}")
-                click.echo(f"   Score: {item.get('score', 'N/A')}")
-        else:
-            click.echo(f"{Fore.YELLOW}No results found{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("agents-list")
-def libraries_agents_list():
-    """List available agents using socratic-agents."""
-    try:
-        click.echo(f"{Fore.CYAN}Available Agents:{Style.RESET_ALL}")
-
-        result = api_request("GET", "/libraries/agents/list")
-
-        if result and result.get("agents"):
-            for i, agent in enumerate(result["agents"], 1):
-                click.echo(f"{i}. {agent}")
-            click.echo(f"\nTotal: {result.get('count', len(result['agents']))} agents")
-        else:
-            click.echo(f"{Fore.YELLOW}No agents available{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("security-validate")
-@click.option("--input", required=True, help="Input to validate")
-def libraries_security_validate(input):
-    """Validate input for security issues using socratic-security."""
-    try:
-        click.echo(f"{Fore.CYAN}Validating input for security issues...{Style.RESET_ALL}")
-
-        result = api_request(
-            "POST",
-            "/libraries/security/validate-input",
-            params={"user_input": input},
-        )
-
-        if result.get("valid"):
-            click.echo(f"{Fore.GREEN}Input is secure!{Style.RESET_ALL}")
-            click.echo(f"  Security Score: {result.get('security_score', 'N/A')}/100")
-            click.echo(f"  Threats Detected: {len(result.get('threats', []))}")
-        else:
-            click.echo(f"{Fore.RED}Security issues detected!{Style.RESET_ALL}")
-            for threat in result.get("threats", []):
-                click.echo(f"  - {threat}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("llm-models")
-def libraries_llm_models():
-    """List available LLM models using socrates-nexus."""
-    try:
-        click.echo(f"{Fore.CYAN}Available LLM Models:{Style.RESET_ALL}")
-
-        result = api_request("GET", "/libraries/llm/models")
-
-        if result and result.get("providers"):
-            for provider, models in result["providers"].items():
-                click.echo(f"\n{Fore.CYAN}{provider.upper()}:{Style.RESET_ALL}")
-                for model in models:
-                    click.echo(f"  • {model}")
-            click.echo(f"\n{Fore.CYAN}Total: {result.get('total_models', 0)} models{Style.RESET_ALL}")
-        else:
-            click.echo(f"{Fore.YELLOW}No models available{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("llm-call")
-@click.option("--prompt", required=True, help="Prompt to send to LLM")
-@click.option("--model", default="claude-opus", help="Model to use")
-@click.option("--provider", default="anthropic", help="LLM provider")
-@click.option("--temperature", default=0.7, type=float, help="Temperature (0-2)")
-def libraries_llm_call(prompt, model, provider, temperature):
-    """Call an LLM using socrates-nexus."""
-    try:
-        click.echo(f"{Fore.CYAN}Calling {provider} {model}...{Style.RESET_ALL}")
-
-        result = api_request(
-            "POST",
-            "/libraries/llm/call",
-            params={
-                "prompt": prompt,
-                "model": model,
-                "provider": provider,
-                "temperature": temperature,
-            },
-        )
-
-        if result.get("status") == "success":
-            click.echo(f"{Fore.GREEN}Response received:{Style.RESET_ALL}")
-            click.echo(f"\n{result.get('response', 'No response')}\n")
-            click.echo(f"Tokens: {result.get('tokens_used', 0)}")
-            click.echo(f"Cost: ${result.get('cost_usd', 0):.4f}")
-        else:
-            click.echo(f"{Fore.RED}LLM call failed{Style.RESET_ALL}", err=True)
-            sys.exit(1)
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("system-info")
-def libraries_system_info():
-    """Get system information from socratic-core."""
-    try:
-        click.echo(f"{Fore.CYAN}System Information:{Style.RESET_ALL}")
-
-        result = api_request("GET", "/libraries/core/system-info")
-
-        if result:
-            click.echo(f"\nFramework: {result.get('framework')}")
-            click.echo(f"Version: {result.get('version')}")
-            click.echo(f"Status: {result.get('status')}")
-            if result.get("components"):
-                click.echo(f"\nComponents:")
-                for component in result["components"]:
-                    click.echo(f"  • {component}")
-        else:
-            click.echo(f"{Fore.YELLOW}Could not retrieve system info{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
-
-
-@libraries.command("config-show")
-def libraries_config_show():
-    """Show current system configuration."""
-    try:
-        click.echo(f"{Fore.CYAN}System Configuration:{Style.RESET_ALL}")
-
-        result = api_request("GET", "/libraries/core/config")
-
-        if result:
-            for key, value in result.items():
-                if key != "status":
-                    click.echo(f"  {key}: {value}")
-        else:
-            click.echo(f"{Fore.YELLOW}Could not retrieve configuration{Style.RESET_ALL}")
-
-    except click.ClickException:
-        raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
 @main.command()
-@click.option(
-    "--log-level",
-    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"]),
-    default="INFO",
-    help="Logging level",
-)
-def info(log_level):
-    """Show Socrates system information."""
+def done():
+    """Finish current session."""
     try:
-        result = api_request("GET", "/info")
-
-        click.echo(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
-        click.echo(f"{Fore.CYAN}Socrates AI System Information{Style.RESET_ALL}")
-        click.echo(f"{Fore.CYAN}{'=' * 50}{Style.RESET_ALL}")
-        click.echo("")
-
-        info_data = result.get("data", {})
-        click.echo(f"Library Version: {info_data.get('version', 'N/A')}")
-        click.echo(f"Claude Model: {info_data.get('claude_model', 'N/A')}")
-        click.echo(f"Data Directory: {info_data.get('data_dir', 'N/A')}")
-        click.echo(f"Log Level: {log_level}")
-        click.echo("")
-
-        # Test API connection
-        try:
-            health = api_request("GET", "/health")
-            click.echo(f"{Fore.GREEN}API Connection: OK{Style.RESET_ALL}")
-        except Exception:
-            click.echo(f"{Fore.RED}API Connection: FAILED{Style.RESET_ALL}")
-
-        click.echo("")
-
+        response = execute_command("done")
+        print_response(response)
     except click.ClickException:
         raise
-    except Exception as e:
-        click.echo(f"{Fore.RED}Error: {e}{Style.RESET_ALL}", err=True)
-        sys.exit(1)
 
 
-def cleanup():
-    """Clean up resources on exit."""
-    global _api_client
-    if _api_client:
-        try:
-            _api_client.close()
-        except Exception:
-            pass
+# ============================================================================
+# Collaboration Commands
+# ============================================================================
+
+@main.group()
+def collab():
+    """Manage collaboration."""
+    pass
+
+
+@collab.command("add")
+@click.argument("username")
+@click.argument("role", required=False, default="contributor")
+def collab_add(username, role):
+    """Add a collaborator to the project."""
+    args = [username, role]
+    try:
+        response = execute_command("collab add", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@collab.command("remove")
+@click.argument("username", required=False)
+def collab_remove(username):
+    """Remove a collaborator from the project."""
+    args = [username] if username else []
+    try:
+        response = execute_command("collab remove", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@collab.command("list")
+def collab_list():
+    """List project collaborators."""
+    try:
+        response = execute_command("collab list")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@collab.command("role")
+@click.argument("username")
+@click.argument("role")
+def collab_role(username, role):
+    """Update collaborator role."""
+    args = [username, role]
+    try:
+        response = execute_command("collab role", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# GitHub Commands
+# ============================================================================
+
+@main.group()
+def github():
+    """Manage GitHub integration."""
+    pass
+
+
+@github.command("import")
+@click.argument("url")
+@click.argument("name", required=False)
+def github_import(url, name):
+    """Import a GitHub repository as a project."""
+    args = [url]
+    if name:
+        args.append(name)
+    try:
+        response = execute_command("github import", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@github.command("pull")
+def github_pull():
+    """Pull latest changes from GitHub."""
+    try:
+        response = execute_command("github pull")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@github.command("push")
+def github_push():
+    """Push changes to GitHub."""
+    try:
+        response = execute_command("github push")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@github.command("sync")
+def github_sync():
+    """Sync with GitHub (bidirectional)."""
+    try:
+        response = execute_command("github sync")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Note Commands
+# ============================================================================
+
+@main.group()
+def note():
+    """Manage project notes."""
+    pass
+
+
+@note.command("add")
+@click.argument("type_", argument_name="type")
+@click.argument("title")
+@click.option("--category", type=click.Choice(["design", "bug", "idea", "task", "general"]),
+              default="general")
+def note_add(type_, title, category):
+    """Add a note to the project."""
+    args = [type_, title, category]
+    try:
+        response = execute_command("note add", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@note.command("list")
+def note_list():
+    """List all project notes."""
+    try:
+        response = execute_command("note list")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@note.command("search")
+@click.argument("query")
+def note_search(query):
+    """Search notes."""
+    args = [query]
+    try:
+        response = execute_command("note search", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@note.command("delete")
+@click.argument("note_id")
+def note_delete(note_id):
+    """Delete a note."""
+    args = [note_id]
+    try:
+        response = execute_command("note delete", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Analytics Commands
+# ============================================================================
+
+@main.group()
+def analytics():
+    """View analytics and metrics."""
+    pass
+
+
+@analytics.command("analyze")
+@click.argument("phase", required=False)
+@click.option("--category", type=click.Choice(["discovery", "analysis", "design", "implementation"]))
+def analytics_analyze(phase, category):
+    """Analyze metrics for a phase."""
+    args = []
+    if phase:
+        args.append(phase)
+    if category:
+        args.append(f"--category={category}")
+    try:
+        response = execute_command("analytics analyze", args)
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@analytics.command("summary")
+def analytics_summary():
+    """Get analytics summary."""
+    try:
+        response = execute_command("analytics summary")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@analytics.command("trends")
+def analytics_trends():
+    """View progression trends."""
+    try:
+        response = execute_command("analytics trends")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@analytics.command("recommend")
+def analytics_recommend():
+    """Get improvement recommendations."""
+    try:
+        response = execute_command("analytics recommend")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@analytics.command("breakdown")
+def analytics_breakdown():
+    """Detailed metrics breakdown."""
+    try:
+        response = execute_command("analytics breakdown")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@analytics.command("status")
+def analytics_status():
+    """Show analytics status."""
+    try:
+        response = execute_command("analytics status")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Maturity Commands
+# ============================================================================
+
+@main.group()
+def maturity():
+    """Track project maturity."""
+    pass
+
+
+@maturity.command("status")
+def maturity_status():
+    """Show current maturity status."""
+    try:
+        response = execute_command("maturity status")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@maturity.command("summary")
+def maturity_summary():
+    """Get maturity summary."""
+    try:
+        response = execute_command("maturity summary")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+@maturity.command("history")
+def maturity_history():
+    """View maturity history."""
+    try:
+        response = execute_command("maturity history")
+        print_response(response)
+    except click.ClickException:
+        raise
+
+
+# ============================================================================
+# Utility Commands
+# ============================================================================
+
+@main.command()
+def version():
+    """Show version information."""
+    click.echo("Socrates CLI version 0.1.0")
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    finally:
-        cleanup()
+    main()
