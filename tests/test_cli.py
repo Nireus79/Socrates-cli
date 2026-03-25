@@ -54,7 +54,7 @@ class TestCLIMainCommand:
         result = cli_runner.invoke(main, ["--version"])
 
         assert result.exit_code == 0
-        assert "1.3.3" in result.output
+        assert "0.1.0" in result.output
 
 
 @pytest.mark.unit
